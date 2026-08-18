@@ -58,6 +58,57 @@ const FPT_CURRICULUM = [
   { code: "SEP490", name: "SE Capstone Project", semester: "HK9", credits: 10 }
 ];
 
+const NORMAL_CURRICULUM = [
+  // HK1 (15TC)
+  { code: "MATH101", name: "Giải tích 1", semester: "HK1", credits: 3 },
+  { code: "PHYS101", name: "Vật lý đại cương 1", semester: "HK1", credits: 3 },
+  { code: "IT101", name: "Tin học đại cương", semester: "HK1", credits: 3 },
+  { code: "PHIL101", name: "Triết học Mác - Lênin", semester: "HK1", credits: 3 },
+  { code: "ENG101", name: "Tiếng Anh 1", semester: "HK1", credits: 3 },
+  // HK2 (17TC)
+  { code: "MATH102", name: "Giải tích 2", semester: "HK2", credits: 3 },
+  { code: "PHYS102", name: "Vật lý đại cương 2", semester: "HK2", credits: 3 },
+  { code: "MATH103", name: "Đại số tuyến tính", semester: "HK2", credits: 3 },
+  { code: "IT102", name: "Nhập môn lập trình", semester: "HK2", credits: 3 },
+  { code: "ENG102", name: "Tiếng Anh 2", semester: "HK2", credits: 3 },
+  { code: "POL102", name: "Kinh tế chính trị Mác - Lênin", semester: "HK2", credits: 2 },
+  // HK3 (17TC)
+  { code: "MATH201", name: "Toán rời rạc", semester: "HK3", credits: 3 },
+  { code: "MATH202", name: "Xác suất thống kê", semester: "HK3", credits: 3 },
+  { code: "IT201", name: "Kỹ thuật lập trình", semester: "HK3", credits: 3 },
+  { code: "IT202", name: "Kiến trúc máy tính", semester: "HK3", credits: 3 },
+  { code: "ENG103", name: "Tiếng Anh 3", semester: "HK3", credits: 3 },
+  { code: "POL103", name: "Chủ nghĩa xã hội khoa học", semester: "HK3", credits: 2 },
+  // HK4 (17TC)
+  { code: "IT203", name: "Cấu trúc dữ liệu và giải thuật", semester: "HK4", credits: 3 },
+  { code: "IT204", name: "Lập trình hướng đối tượng", semester: "HK4", credits: 3 },
+  { code: "IT205", name: "Cơ sở dữ liệu", semester: "HK4", credits: 3 },
+  { code: "IT206", name: "Hệ điều hành", semester: "HK4", credits: 3 },
+  { code: "ENG104", name: "Tiếng Anh chuyên ngành", semester: "HK4", credits: 3 },
+  { code: "POL104", name: "Lịch sử Đảng Cộng sản Việt Nam", semester: "HK4", credits: 2 },
+  // HK5 (17TC)
+  { code: "IT301", name: "Mạng máy tính", semester: "HK5", credits: 3 },
+  { code: "IT302", name: "Công nghệ phần mềm", semester: "HK5", credits: 3 },
+  { code: "IT303", name: "Phân tích thiết kế hệ thống", semester: "HK5", credits: 3 },
+  { code: "IT304", name: "Lập trình Web", semester: "HK5", credits: 3 },
+  { code: "IT305", name: "Trí tuệ nhân tạo", semester: "HK5", credits: 3 },
+  { code: "POL105", name: "Tư tưởng Hồ Chí Minh", semester: "HK5", credits: 2 },
+  // HK6 (15TC)
+  { code: "IT401", name: "An toàn thông tin", semester: "HK6", credits: 3 },
+  { code: "IT402", name: "Quản lý dự án CNTT", semester: "HK6", credits: 3 },
+  { code: "IT403", name: "Chuyên đề tự chọn 1", semester: "HK6", credits: 3 },
+  { code: "IT404", name: "Chuyên đề tự chọn 2", semester: "HK6", credits: 3 },
+  { code: "IT405", name: "Thực tập cơ sở", semester: "HK6", credits: 3 },
+  // HK7 (12TC)
+  { code: "IT501", name: "Kiểm thử phần mềm", semester: "HK7", credits: 3 },
+  { code: "IT502", name: "Chuyên đề tự chọn 3", semester: "HK7", credits: 3 },
+  { code: "IT503", name: "Chuyên đề tự chọn 4", semester: "HK7", credits: 3 },
+  { code: "IT504", name: "Thực tập chuyên ngành", semester: "HK7", credits: 3 },
+  // HK8 (10TC)
+  { code: "IT601", name: "Thực tập tốt nghiệp", semester: "HK8", credits: 3 },
+  { code: "IT602", name: "Đồ án tốt nghiệp / Khóa luận", semester: "HK8", credits: 7 },
+];
+
 // ─── Add Semester Modal ───────────────────────────────────────────────────────
 
 function AddSemesterModal({ existingSemesters, onConfirm, onClose }) {
@@ -522,19 +573,39 @@ export default function Subjects() {
         return;
       }
     }
+    updateSettings({ totalCredits: 133 });
     FPT_CURRICULUM.forEach(sub => {
       addSubject({
         code: sub.code,
         name: sub.name,
         semester: sub.semester,
-        credits: sub.credits,
         score: '',
+        credits: sub.credits,
         difficulty: 3,
-        status: 'planned'
+        status: 'planned',
       });
     });
-    updateSettings({ totalCredits: 133 });
   }, [addSubject, updateSettings, subjects.length]);
+
+  function loadNormalCurriculum() {
+    if (subjects.length > 0) {
+      if (!window.confirm("Thao tác này sẽ thêm các môn học vào danh sách hiện tại. Bạn có chắc chắn muốn tiếp tục?")) {
+        return;
+      }
+    }
+    updateSettings({ totalCredits: 120 });
+    NORMAL_CURRICULUM.forEach(sub => {
+      addSubject({
+        code: sub.code,
+        name: sub.name,
+        semester: sub.semester,
+        score: '',
+        credits: sub.credits,
+        difficulty: 3,
+        status: 'planned',
+      });
+    });
+  }
 
   const codeGroups = useMemo(() => {
     const map = {};
@@ -585,9 +656,14 @@ export default function Subjects() {
             <FileSpreadsheet size={15} /> <span>Import CSV</span>
           </button>
           {subjects.length === 0 && (
-            <button className="btn-ghost" onClick={loadFPTCurriculum} style={{ color: 'var(--accent-blue)' }}>
-              <span>Khung FPT</span>
-            </button>
+            <>
+              <button className="btn-ghost" onClick={loadFPTCurriculum} style={{ color: 'var(--accent-blue)' }}>
+                <span>Khung FPT</span>
+              </button>
+              <button className="btn-ghost" onClick={loadNormalCurriculum} style={{ color: 'var(--accent-green)' }}>
+                <span>Khung 8 học kỳ</span>
+              </button>
+            </>
           )}
           <button className="btn-primary" onClick={() => setAddSemModalOpen(true)}>
             <FolderPlus size={16} /> <span>Thêm học kỳ</span>
@@ -606,7 +682,10 @@ export default function Subjects() {
           </p>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button className="btn-primary" onClick={loadFPTCurriculum} style={{ background: '#3b82f6' }}>
-              <span>Load khung chương trình FPT</span>
+              <span>Load khung trình FPT (133 TC)</span>
+            </button>
+            <button className="btn-primary" onClick={loadNormalCurriculum} style={{ background: '#10b981' }}>
+              <span>Load khung 8 Học kỳ (120 TC)</span>
             </button>
             <button className="btn-ghost" onClick={() => setCsvModalOpen(true)} style={{ background: 'rgba(255,255,255,0.05)' }}>
               <span>Import CSV</span>
