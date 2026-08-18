@@ -1,0 +1,703 @@
+import { useState, useMemo, useRef, useCallback } from 'react';
+import {
+  Plus, Pencil, Trash2, RefreshCw, BookOpen, ChevronDown, ChevronUp,
+  AlertTriangle, Check, FileSpreadsheet, X, Info, FolderPlus,
+} from 'lucide-react';
+import { useApp } from '../context/AppContext';
+import AddSubjectModal from '../components/AddSubjectModal';
+import { getEffectiveScore, getLetterGrade, convertToScale4, calculateGPA4, calculateGPA10 } from '../utils/gpaCalculations';
+
+const STATUS_LABELS = { done: 'Đã học', planned: 'Dự kiến' };
+const DIFFICULTY_STARS = { 1: '★', 2: '★★', 3: '★★★', 4: '★★★★', 5: '★★★★★' };
+
+// ─── Add Semester Modal ───────────────────────────────────────────────────────
+
+function AddSemesterModal({ existingSemesters, onConfirm, onClose }) {
+  const [name, setName] = useState('');
+  const inputRef = useRef(null);
+
+  // Generate smart suggestion
+  const suggestion = useMemo(() => {
+    if (existingSemesters.length === 0) return 'HK1 2024-2025';
+    const last = existingSemesters[existingSemesters.length - 1];
+    // Try to increment HKx YYYY-YYYY pattern
+    const match = last.match(/HK(\d+)\s+(\d{4})-(\d{4})/i);
+    if (match) {
+      const hk = parseInt(match[1]);
+      const y1 = parseInt(match[2]);
+      const y2 = parseInt(match[3]);
+      if (hk === 1) return `HK2 ${y1}-${y2}`;
+      if (hk === 2) return `HK1 ${y1 + 1}-${y2 + 1}`;
+      if (hk === 3) return `HK1 ${y1 + 1}-${y2 + 1}`;
+    }
+    return '';
+  }, [existingSemesters]);
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    const val = name.trim() || suggestion;
+    if (!val) return;
+    onConfirm(val);
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 380 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+          <FolderPlus size={18} color="var(--accent-purple)" />
+          <h2 style={{ fontSize: 17, fontWeight: 700 }}>Thêm học kỳ mới</h2>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: 8 }}>
+            Tên học kỳ
+          </label>
+          <input
+            ref={inputRef}
+            autoFocus
+            className="input-field"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            placeholder={suggestion || 'VD: HK1 2024-2025'}
+            list="sem-suggestions"
+          />
+          <datalist id="sem-suggestions">
+            {suggestion && <option value={suggestion} />}
+            {existingSemesters.map(s => <option key={s} value={s} />)}
+          </datalist>
+          {suggestion && !name && (
+            <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 6 }}>
+              💡 Gợi ý: <button
+                type="button"
+                onClick={() => setName(suggestion)}
+                style={{ background: 'none', border: 'none', color: '#a78bfa', cursor: 'pointer', fontSize: 11, fontFamily: 'Inter, sans-serif', padding: 0 }}
+              >
+                {suggestion}
+              </button>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
+            <button type="button" className="btn-ghost" onClick={onClose}>Huỷ</button>
+            <button type="submit" className="btn-primary">
+              <Plus size={14} /> Tạo học kỳ
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ─── Retake Modal ─────────────────────────────────────────────────────────────
+
+function RetakeModal({ subject, onClose, onConfirm }) {
+  const [policy, setPolicy] = useState('highest');
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 400 }}>
+        <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 12 }}>Thêm môn học lại</h3>
+        <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+          Môn <strong>{subject?.name || subject?.code}</strong> sẽ được thêm lần nữa.
+          Chọn cách tính điểm vào GPA:
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+          {[
+            { value: 'highest', label: '🏆 Điểm cao nhất', desc: 'GPA dùng điểm cao hơn giữa hai lần' },
+            { value: 'latest', label: '🆕 Điểm mới nhất', desc: 'GPA dùng điểm lần học lại gần nhất' },
+          ].map(opt => (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => setPolicy(opt.value)}
+              style={{
+                padding: '12px 16px', borderRadius: 10,
+                border: `1px solid ${policy === opt.value ? 'var(--accent-purple)' : 'var(--border-color)'}`,
+                background: policy === opt.value ? 'rgba(139,92,246,0.12)' : 'transparent',
+                color: 'var(--text-primary)', cursor: 'pointer', textAlign: 'left',
+                transition: 'all 0.15s', fontFamily: 'Inter, sans-serif',
+              }}
+            >
+              <div style={{ fontWeight: 600, fontSize: 13 }}>{opt.label}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{opt.desc}</div>
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button className="btn-ghost" onClick={onClose}>Huỷ</button>
+          <button className="btn-primary" onClick={() => onConfirm(policy)}>
+            <Check size={14} /> Xác nhận
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Quick Add Row ────────────────────────────────────────────────────────────
+
+const QUICK_DEFAULTS = { code: '', name: '', score: '', credits: '3', difficulty: '3', status: 'done' };
+
+function QuickAddRow({ semester, onSave, onCancel }) {
+  const [form, setForm] = useState({ ...QUICK_DEFAULTS });
+  const nameRef = useRef(null);
+
+  function set(field, value) {
+    setForm(prev => ({ ...prev, [field]: value }));
+  }
+
+  function handleKeyDown(e) {
+    if (e.key === 'Enter') { e.preventDefault(); trySubmit(); }
+    if (e.key === 'Escape') onCancel();
+  }
+
+  function trySubmit() {
+    if (!form.name.trim() && !form.code.trim()) {
+      nameRef.current?.focus();
+      return;
+    }
+    const score = form.status === 'done' && form.score !== '' ? parseFloat(form.score) : '';
+    if (form.status === 'done' && form.score !== '' && (isNaN(score) || score < 0 || score > 10)) {
+      nameRef.current?.focus();
+      return;
+    }
+    onSave({
+      code: form.code.trim(),
+      name: form.name.trim(),
+      semester,
+      score: form.status === 'done' ? score : '',
+      credits: parseInt(form.credits, 10) || 3,
+      difficulty: parseInt(form.difficulty, 10) || 3,
+      status: form.status,
+    });
+    setForm({ ...QUICK_DEFAULTS });
+    setTimeout(() => nameRef.current?.focus(), 30);
+  }
+
+  const iStyle = {
+    background: 'transparent', border: 'none',
+    borderBottom: '1px solid rgba(139,92,246,0.35)',
+    color: 'var(--text-primary)', fontSize: 13,
+    fontFamily: 'Inter, sans-serif', padding: '3px 4px',
+    outline: 'none', width: '100%', borderRadius: 0,
+  };
+
+  return (
+    <tr style={{ background: 'rgba(139,92,246,0.07)' }}>
+      <td>
+        <input style={{ ...iStyle, width: 70, fontFamily: 'monospace', fontSize: 12 }}
+          value={form.code} onChange={e => set('code', e.target.value)}
+          onKeyDown={handleKeyDown} placeholder="CS101" />
+      </td>
+      <td>
+        <input ref={nameRef} style={{ ...iStyle, minWidth: 150 }}
+          value={form.name} onChange={e => set('name', e.target.value)}
+          onKeyDown={handleKeyDown} placeholder="Tên môn học *" autoFocus />
+      </td>
+      <td style={{ textAlign: 'center' }}>
+        <input style={{ ...iStyle, width: 56, textAlign: 'center' }}
+          type="number" min="0" max="10" step="0.1"
+          value={form.score} onChange={e => set('score', e.target.value)}
+          onKeyDown={handleKeyDown} placeholder="8.5"
+          disabled={form.status === 'planned'} />
+      </td>
+      <td style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>—</td>
+      <td style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>—</td>
+      <td style={{ textAlign: 'center' }}>
+        <input style={{ ...iStyle, width: 38, textAlign: 'center' }}
+          type="number" min="1" max="10" step="1"
+          value={form.credits} onChange={e => set('credits', e.target.value)}
+          onKeyDown={handleKeyDown} />
+      </td>
+      <td style={{ textAlign: 'center' }}>
+        <select style={{ ...iStyle, width: 36, cursor: 'pointer' }}
+          value={form.difficulty} onChange={e => set('difficulty', e.target.value)}
+          onKeyDown={handleKeyDown}>
+          {[1,2,3,4,5].map(d => <option key={d} value={d}>{d}</option>)}
+        </select>
+      </td>
+      <td style={{ textAlign: 'center' }}>
+        <select style={{ ...iStyle, fontSize: 11, cursor: 'pointer' }}
+          value={form.status} onChange={e => set('status', e.target.value)}
+          onKeyDown={handleKeyDown}>
+          <option value="done">Đã học</option>
+          <option value="planned">Dự kiến</option>
+        </select>
+      </td>
+      <td>
+        <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+          <button className="btn-primary" style={{ padding: '4px 10px' }} onClick={trySubmit} title="Lưu (Enter)">
+            <Check size={12} />
+          </button>
+          <button className="btn-ghost" style={{ padding: '4px 8px' }} onClick={onCancel} title="Huỷ (Esc)">
+            <X size={12} />
+          </button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ─── CSV Import Modal ─────────────────────────────────────────────────────────
+
+function parseCSVLine(line, delimiter) {
+  const result = [];
+  let field = '', inQuote = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { inQuote = !inQuote; continue; }
+    if (!inQuote && ch === delimiter) { result.push(field.trim()); field = ''; continue; }
+    field += ch;
+  }
+  result.push(field.trim());
+  return result;
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
+  if (lines.length === 0) return { subjects: [], errors: [] };
+  const firstLine = lines[0];
+  const delimiter = firstLine.includes('\t') ? '\t' : firstLine.includes(';') ? ';' : ',';
+  const firstFields = parseCSVLine(lines[0], delimiter);
+  const isHeader = isNaN(parseFloat(firstFields[3])) || firstFields[3] === '';
+  const dataLines = isHeader ? lines.slice(1) : lines;
+  const subjects = [], errors = [];
+
+  dataLines.forEach((line, idx) => {
+    if (!line.trim()) return;
+    const fields = parseCSVLine(line, delimiter);
+    const [code='', name='', semester='', scoreRaw='', creditsRaw='', diffRaw='', statusRaw=''] = fields;
+    const rowNum = isHeader ? idx + 2 : idx + 1;
+    if (!name.trim() && !code.trim()) { errors.push(`Dòng ${rowNum}: thiếu Mã môn hoặc Tên môn`); return; }
+    if (!semester.trim()) { errors.push(`Dòng ${rowNum}: thiếu Học kỳ`); return; }
+    const score = scoreRaw.trim() !== '' ? parseFloat(scoreRaw.replace(',', '.')) : '';
+    const credits = parseInt(creditsRaw) || 3;
+    const difficulty = parseInt(diffRaw) || 3;
+    const status = statusRaw.trim().toLowerCase().includes('dự') ? 'planned' : 'done';
+    if (typeof score === 'number' && (isNaN(score) || score < 0 || score > 10)) {
+      errors.push(`Dòng ${rowNum}: điểm "${scoreRaw}" không hợp lệ`); return;
+    }
+    subjects.push({ code: code.trim(), name: name.trim(), semester: semester.trim(), score, credits, difficulty, status });
+  });
+  return { subjects, errors };
+}
+
+function ImportCSVModal({ onClose, onImport }) {
+  const [text, setText] = useState('');
+  const [preview, setPreview] = useState(null);
+  const [errors, setErrors] = useState([]);
+  const fileRef = useRef(null);
+
+  const CSV_TEMPLATE = `Mã môn;Tên môn;Học kỳ;Điểm;Tín chỉ;Độ khó;Trạng thái
+CS101;Giải tích 1;HK1 2024-2025;8.5;4;3;Đã học
+CS102;Đại số tuyến tính;HK1 2024-2025;7.0;3;4;Đã học
+CS201;Lập trình Python;HK2 2024-2025;;3;2;Dự kiến`;
+
+  function handleParse(raw) {
+    const { subjects, errors } = parseCSV(raw);
+    setPreview(subjects); setErrors(errors);
+  }
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-content" style={{ maxWidth: 680 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <FileSpreadsheet size={18} color="var(--accent-green)" />
+            <h2 style={{ fontSize: 17, fontWeight: 700 }}>Import từ CSV / Excel</h2>
+          </div>
+          <button className="btn-ghost" style={{ padding: '6px 8px' }} onClick={onClose}><X size={16} /></button>
+        </div>
+
+        <div className="alert-info" style={{ marginBottom: 16, fontSize: 12 }}>
+          <Info size={14} />
+          <div>
+            <strong>Format cột:</strong> Mã môn · Tên môn · Học kỳ · Điểm (0–10) · Tín chỉ · Độ khó (1–5) · Trạng thái<br/>
+            Phân cách bằng <code>;</code> hoặc <code>,</code> hoặc <code>Tab</code> (tự nhận dạng).
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+          <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => fileRef.current?.click()}>
+            📁 Upload file .csv
+          </button>
+          <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => { setText(CSV_TEMPLATE); handleParse(CSV_TEMPLATE); }}>
+            📋 Template mẫu
+          </button>
+          <input ref={fileRef} type="file" accept=".csv,.txt" onChange={e => {
+            const file = e.target.files?.[0]; if (!file) return;
+            const reader = new FileReader();
+            reader.onload = ev => { const raw = ev.target.result; setText(raw); handleParse(raw); };
+            reader.readAsText(file, 'utf-8'); e.target.value = '';
+          }} style={{ display: 'none' }} />
+        </div>
+
+        <textarea
+          value={text}
+          onChange={e => { setText(e.target.value); handleParse(e.target.value); }}
+          placeholder={`Dán dữ liệu từ Excel vào đây...\nCS101;Giải tích 1;HK1 2024-2025;8.5;4;3;Đã học`}
+          style={{
+            width: '100%', minHeight: 130, background: 'rgba(255,255,255,0.04)',
+            border: '1px solid var(--border-color)', borderRadius: 10, padding: '12px',
+            color: 'var(--text-primary)', fontSize: 12, fontFamily: 'monospace',
+            resize: 'vertical', outline: 'none', lineHeight: 1.6,
+          }}
+        />
+
+        {errors.length > 0 && (
+          <div className="alert-warning" style={{ marginTop: 10, flexDirection: 'column', gap: 4 }}>
+            <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠️ {errors.length} lỗi:</div>
+            {errors.map((e, i) => <div key={i} style={{ fontSize: 12 }}>{e}</div>)}
+          </div>
+        )}
+
+        {preview && preview.length > 0 && (
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 12, color: 'var(--accent-green)', fontWeight: 600, marginBottom: 8 }}>
+              ✅ Nhận dạng được {preview.length} môn học:
+            </div>
+            <div style={{ overflowX: 'auto', maxHeight: 180, overflowY: 'auto' }}>
+              <table className="data-table" style={{ fontSize: 12 }}>
+                <thead><tr><th>Mã</th><th>Tên môn</th><th>Học kỳ</th><th>Điểm</th><th>TC</th><th>Khó</th><th>TT</th></tr></thead>
+                <tbody>
+                  {preview.map((s, i) => (
+                    <tr key={i}>
+                      <td style={{ fontFamily: 'monospace' }}>{s.code || '—'}</td>
+                      <td>{s.name}</td><td>{s.semester}</td>
+                      <td style={{ textAlign: 'center' }}>{s.score !== '' ? s.score : '—'}</td>
+                      <td style={{ textAlign: 'center' }}>{s.credits}</td>
+                      <td style={{ textAlign: 'center' }}>{s.difficulty}</td>
+                      <td><span style={{ fontSize: 10, fontWeight: 600, color: s.status === 'done' ? '#34d399' : '#60a5fa' }}>{s.status === 'done' ? 'Đã học' : 'Dự kiến'}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 16 }}>
+          <button className="btn-ghost" onClick={onClose}>Huỷ</button>
+          <button className="btn-primary" onClick={() => { if (preview?.length) { onImport(preview); onClose(); } }}
+            disabled={!preview?.length} style={{ opacity: preview?.length ? 1 : 0.5 }}>
+            <Plus size={14} /> Thêm {preview?.length || 0} môn
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
+
+export default function Subjects() {
+  const { state, deleteSubject, duplicateSubject, addSubject } = useApp();
+  const { subjects, settings } = state;
+
+  const [editingSubject, setEditingSubject] = useState(null);   // chỉ dùng cho sửa
+  const [retakeTarget, setRetakeTarget] = useState(null);
+  const [collapsedSemesters, setCollapsedSemesters] = useState({});
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [quickAddSem, setQuickAddSem] = useState(null);
+  const [addSemModalOpen, setAddSemModalOpen] = useState(false);
+  const [csvModalOpen, setCsvModalOpen] = useState(false);
+
+  const grouped = useMemo(() => {
+    const map = {};
+    for (const s of subjects) {
+      const key = s.semester || 'Chưa phân học kỳ';
+      if (!map[key]) map[key] = [];
+      map[key].push(s);
+    }
+    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
+  }, [subjects]);
+
+  const existingSemesters = useMemo(() => grouped.map(([s]) => s), [grouped]);
+
+  function toggleSemester(sem) {
+    setCollapsedSemesters(prev => ({ ...prev, [sem]: !prev[sem] }));
+  }
+
+  function handleDelete(id) {
+    if (deleteConfirmId === id) { deleteSubject(id); setDeleteConfirmId(null); }
+    else setDeleteConfirmId(id);
+  }
+
+  function handleRetakeConfirm(policy) {
+    duplicateSubject(retakeTarget.id, policy);
+    setRetakeTarget(null);
+  }
+
+  function handleAddSemester(semName) {
+    setAddSemModalOpen(false);
+    // Nếu học kỳ chưa tồn tại, mở quick-add ngay
+    setCollapsedSemesters(prev => ({ ...prev, [semName]: false }));
+    setQuickAddSem(semName);
+    // Nếu học kỳ chưa có môn nào → tạo một môn placeholder để group xuất hiện
+    // Không cần — quick-add sẽ tạo môn đầu tiên, group tự xuất hiện sau đó
+    // Ta cần một cách để group hiện ngay: dùng state riêng
+    setPendingSem(semName);
+  }
+
+  // "Pending semester" — học kỳ mới chưa có môn nào, chỉ hiện quick-add
+  const [pendingSem, setPendingSem] = useState(null);
+
+  const handleQuickSave = useCallback((semester, data) => {
+    addSubject({ ...data, semester });
+    // Nếu vừa tạo môn đầu tiên cho pending semester → clear pending
+    if (semester === pendingSem) setPendingSem(null);
+  }, [addSubject, pendingSem]);
+
+  const handleCSVImport = useCallback((list) => {
+    list.forEach(s => addSubject(s));
+  }, [addSubject]);
+
+  const codeGroups = useMemo(() => {
+    const map = {};
+    for (const s of subjects) {
+      const code = s.code?.trim().toLowerCase();
+      if (code) { if (!map[code]) map[code] = []; map[code].push(s.id); }
+    }
+    return map;
+  }, [subjects]);
+
+  function isRetake(s) {
+    const code = s.code?.trim().toLowerCase();
+    return code && codeGroups[code]?.length > 1;
+  }
+
+  // Combine existing groups + pending semester (if any)
+  const allGroups = useMemo(() => {
+    if (!pendingSem || existingSemesters.includes(pendingSem)) return grouped;
+    const newEntry = [pendingSem, []];
+    return [...grouped, newEntry].sort(([a], [b]) => a.localeCompare(b));
+  }, [grouped, pendingSem, existingSemesters]);
+
+  const hasAnyContent = subjects.length > 0 || pendingSem;
+
+  return (
+    <div style={{ padding: '28px 24px', maxWidth: 1000, margin: '0 auto' }}>
+      {/* Header */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: -0.5 }}>
+            <span className="gradient-text">Môn học</span>
+          </h1>
+          <p style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
+            {subjects.length} môn · {subjects.filter(s => s.status === 'done').length} đã học · {subjects.filter(s => s.status === 'planned').length} dự kiến
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button className="btn-ghost" onClick={() => setCsvModalOpen(true)}>
+            <FileSpreadsheet size={15} /> Import CSV
+          </button>
+          <button className="btn-primary" onClick={() => setAddSemModalOpen(true)}>
+            <FolderPlus size={16} /> Thêm học kỳ
+          </button>
+        </div>
+      </div>
+
+      {!hasAnyContent ? (
+        <div className="empty-state glass-card" style={{ padding: 60 }}>
+          <BookOpen size={56} />
+          <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--text-secondary)', marginBottom: 8, marginTop: 16 }}>
+            Chưa có dữ liệu nào
+          </h2>
+          <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 20 }}>
+            Tạo học kỳ đầu tiên để bắt đầu nhập môn học
+          </p>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <button className="btn-ghost" onClick={() => setCsvModalOpen(true)}>
+              <FileSpreadsheet size={15} /> Import CSV
+            </button>
+            <button className="btn-primary" onClick={() => setAddSemModalOpen(true)}>
+              <FolderPlus size={16} /> Tạo học kỳ đầu tiên
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          {allGroups.map(([semester, subs]) => {
+            const collapsed = collapsedSemesters[semester];
+            const semCredits = subs.filter(s => s.status === 'done').reduce((sum, s) => sum + (parseInt(s.credits) || 0), 0);
+            const semGpa4 = calculateGPA4(subs, settings.conversionTable).gpa;
+            const semGpa10 = calculateGPA10(subs, settings.conversionTable).gpa;
+            const showingQuickAdd = quickAddSem === semester;
+            const isEmpty = subs.length === 0;
+
+            return (
+              <div key={semester} className="glass-card" style={{ overflow: 'hidden' }}>
+                {/* Semester header */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                  padding: '14px 18px',
+                  borderBottom: (collapsed || (isEmpty && !showingQuickAdd)) ? 'none' : '1px solid var(--border-color)',
+                }}>
+                  <button
+                    onClick={() => !isEmpty && toggleSemester(semester)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      background: 'transparent', border: 'none',
+                      cursor: isEmpty ? 'default' : 'pointer', fontFamily: 'Inter, sans-serif',
+                    }}
+                  >
+                    <div className="semester-header">{semester}</div>
+                    <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>
+                      {isEmpty ? 'Mới tạo — chưa có môn' : (
+                        <>
+                          <strong style={{ color: 'var(--accent-purple)' }}>
+                            GPA: {semGpa4 !== null ? semGpa4.toFixed(2) : '—'}
+                            <span style={{ fontWeight: 'normal', opacity: 0.7, fontSize: 11, marginLeft: 4 }}>(Hệ 10: {semGpa10 !== null ? semGpa10.toFixed(2) : '—'})</span>
+                          </strong>
+                          <span style={{ margin: '0 6px', opacity: 0.5 }}>|</span>
+                          {subs.length} môn · {semCredits} tín chỉ đã học
+                        </>
+                      )}
+                    </span>
+                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {!showingQuickAdd && (
+                      <button
+                        onClick={() => { setQuickAddSem(semester); setCollapsedSemesters(prev => ({ ...prev, [semester]: false })); }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px',
+                          background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)',
+                          borderRadius: 8, color: '#a78bfa', fontSize: 12, fontWeight: 600,
+                          cursor: 'pointer', transition: 'all 0.15s', fontFamily: 'Inter, sans-serif',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'rgba(139,92,246,0.22)'}
+                        onMouseLeave={e => e.currentTarget.style.background = 'rgba(139,92,246,0.12)'}
+                      >
+                        <Plus size={13} /> Thêm nhanh
+                      </button>
+                    )}
+                    {!isEmpty && (
+                      collapsed
+                        ? <ChevronDown size={16} color="var(--text-muted)" style={{ cursor: 'pointer' }} onClick={() => toggleSemester(semester)} />
+                        : <ChevronUp size={16} color="var(--text-muted)" style={{ cursor: 'pointer' }} onClick={() => toggleSemester(semester)} />
+                    )}
+                  </div>
+                </div>
+
+                {/* Table */}
+                {!collapsed && (subs.length > 0 || showingQuickAdd) && (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Mã môn</th>
+                          <th>Tên môn học</th>
+                          <th style={{ textAlign: 'center' }}>Điểm</th>
+                          <th style={{ textAlign: 'center' }}>Thang 4</th>
+                          <th style={{ textAlign: 'center' }}>Xếp loại</th>
+                          <th style={{ textAlign: 'center' }}>Tín chỉ</th>
+                          <th style={{ textAlign: 'center' }}>Độ khó</th>
+                          <th style={{ textAlign: 'center' }}>Trạng thái</th>
+                          <th style={{ textAlign: 'right' }}>Thao tác</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {subs.map(s => {
+                          const score = getEffectiveScore(s);
+                          const scale4 = score !== null ? convertToScale4(score, settings.conversionTable) : null;
+                          const letter = score !== null ? getLetterGrade(score, settings.conversionTable) : '-';
+                          const isConfirmDelete = deleteConfirmId === s.id;
+
+                          return (
+                            <tr key={s.id}>
+                              <td>
+                                <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                                  {s.code || '—'}
+                                </span>
+                                {isRetake(s) && (
+                                  <span style={{ marginLeft: 6, fontSize: 9, background: 'rgba(245,158,11,0.15)', color: '#fbbf24', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
+                                    HỌC LẠI
+                                  </span>
+                                )}
+                              </td>
+                              <td><span style={{ fontSize: 13, color: 'var(--text-primary)', fontWeight: 500 }}>{s.name || '—'}</span></td>
+                              <td style={{ textAlign: 'center' }}>
+                                {score !== null ? (
+                                  <span style={{ fontSize: 14, fontWeight: 700, color: score >= 8 ? 'var(--accent-green)' : score >= 6.5 ? 'var(--accent-blue)' : score >= 5 ? 'var(--accent-amber)' : 'var(--accent-red)' }}>
+                                    {score}
+                                  </span>
+                                ) : <span style={{ color: 'var(--text-muted)' }}>—</span>}
+                              </td>
+                              <td style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: 13 }}>
+                                {scale4 !== null ? scale4.toFixed(1) : '—'}
+                              </td>
+                              <td style={{ textAlign: 'center' }}>
+                                {letter !== '-' ? (
+                                  <span className={`badge ${letter === 'A' ? 'badge-excellent' : letter.startsWith('B') ? 'badge-good' : letter.startsWith('C') ? 'badge-average' : letter.startsWith('D') ? 'badge-medium' : 'badge-fail'}`} style={{ fontSize: 11 }}>
+                                    {letter}
+                                  </span>
+                                ) : '—'}
+                              </td>
+                              <td style={{ textAlign: 'center', color: 'var(--text-secondary)', fontWeight: 600 }}>{s.credits}</td>
+                              <td style={{ textAlign: 'center', fontSize: 12, color: 'var(--accent-amber)' }}>{DIFFICULTY_STARS[s.difficulty] || '★★★'}</td>
+                              <td style={{ textAlign: 'center' }}>
+                                <span style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, fontWeight: 600, background: s.status === 'done' ? 'rgba(16,185,129,0.15)' : 'rgba(59,130,246,0.15)', color: s.status === 'done' ? '#34d399' : '#60a5fa' }}>
+                                  {STATUS_LABELS[s.status] || s.status}
+                                </span>
+                              </td>
+                              <td>
+                                <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                                  <button className="btn-ghost" onClick={() => setEditingSubject(s)} style={{ padding: '5px 8px' }} title="Sửa"><Pencil size={13} /></button>
+                                  <button className="btn-ghost" onClick={() => setRetakeTarget(s)} style={{ padding: '5px 8px' }} title="Học lại"><RefreshCw size={13} /></button>
+                                  {isConfirmDelete ? (
+                                    <button className="btn-danger" onClick={() => handleDelete(s.id)} style={{ padding: '5px 10px', fontSize: 12 }}>
+                                      <AlertTriangle size={12} /> Xác nhận
+                                    </button>
+                                  ) : (
+                                    <button className="btn-danger" onClick={() => handleDelete(s.id)} style={{ padding: '5px 8px' }} title="Xóa"><Trash2 size={13} /></button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+
+                        {showingQuickAdd && (
+                          <QuickAddRow
+                            semester={semester}
+                            onSave={(data) => handleQuickSave(semester, data)}
+                            onCancel={() => { setQuickAddSem(null); if (semester === pendingSem && subs.length === 0) setPendingSem(null); }}
+                          />
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Edit modal (chỉ dùng khi sửa) */}
+      {editingSubject && (
+        <AddSubjectModal
+          isOpen={true}
+          onClose={() => setEditingSubject(null)}
+          editingSubject={editingSubject}
+        />
+      )}
+
+      {retakeTarget && (
+        <RetakeModal subject={retakeTarget} onClose={() => setRetakeTarget(null)} onConfirm={handleRetakeConfirm} />
+      )}
+
+      {addSemModalOpen && (
+        <AddSemesterModal
+          existingSemesters={existingSemesters}
+          onConfirm={handleAddSemester}
+          onClose={() => setAddSemModalOpen(false)}
+        />
+      )}
+
+      {csvModalOpen && (
+        <ImportCSVModal onClose={() => setCsvModalOpen(false)} onImport={handleCSVImport} />
+      )}
+    </div>
+  );
+}
