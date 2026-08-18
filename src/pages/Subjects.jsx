@@ -186,7 +186,7 @@ function RetakeModal({ subject, onClose, onConfirm }) {
 
 const QUICK_DEFAULTS = { code: '', name: '', score: '', credits: '3', difficulty: '3', status: 'done' };
 
-function InlineSubjectRow({ semester, initialData, onSave, onCancel }) {
+function InlineSubjectRow({ semester, initialData, onSave, onCancel, onAlert }) {
   const [form, setForm] = useState(initialData || { ...QUICK_DEFAULTS });
   const nameRef = useRef(null);
 
@@ -201,12 +201,18 @@ function InlineSubjectRow({ semester, initialData, onSave, onCancel }) {
 
   function trySubmit() {
     if (!form.name.trim() && !form.code.trim()) {
+      if (onAlert) onAlert('Vui lòng nhập Mã môn hoặc Tên môn học!');
       nameRef.current?.focus();
       return;
     }
-    const score = form.status === 'done' && form.score !== '' ? parseFloat(form.score) : '';
-    if (form.status === 'done' && form.score !== '' && (isNaN(score) || score < 0 || score > 10)) {
-      nameRef.current?.focus();
+    const score = form.score !== '' ? parseFloat(form.score) : '';
+    if (form.score !== '' && (isNaN(score) || score < 0 || score > 10)) {
+      if (onAlert) onAlert('Điểm số không hợp lệ! Vui lòng nhập điểm từ 0 đến 10.');
+      return;
+    }
+    const credits = parseInt(form.credits, 10);
+    if (isNaN(credits) || credits <= 0) {
+      if (onAlert) onAlert('Số tín chỉ không hợp lệ! Phải lớn hơn 0.');
       return;
     }
     onSave({
@@ -214,7 +220,7 @@ function InlineSubjectRow({ semester, initialData, onSave, onCancel }) {
       code: form.code.trim(),
       name: form.name.trim(),
       semester,
-      score: form.status === 'done' ? score : '',
+      score: score,
       credits: parseInt(form.credits, 10) || 3,
       difficulty: parseInt(form.difficulty, 10) || 3,
       status: form.status,
@@ -248,9 +254,9 @@ function InlineSubjectRow({ semester, initialData, onSave, onCancel }) {
       <td style={{ textAlign: 'center' }}>
         <input style={{ ...iStyle, width: 56, textAlign: 'center' }}
           type="number" min="0" max="10" step="0.1"
-          value={form.score} onChange={e => set('score', e.target.value)}
-          onKeyDown={handleKeyDown} placeholder="8.5"
-          disabled={form.status === 'planned'} />
+          value={form.score} 
+          onChange={e => set('score', e.target.value)}
+          onKeyDown={handleKeyDown} placeholder="8.5" />
       </td>
       <td style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>—</td>
       <td style={{ textAlign: 'center', color: 'var(--text-muted)', fontSize: 12 }}>—</td>
@@ -453,6 +459,13 @@ export default function Subjects() {
   const [quickAddSem, setQuickAddSem] = useState(null);
   const [addSemModalOpen, setAddSemModalOpen] = useState(false);
   const [csvModalOpen, setCsvModalOpen] = useState(false);
+  const [pendingSem, setPendingSem] = useState(null);
+  const [toastMessage, setToastMessage] = useState(null);
+
+  const showToast = useCallback((msg) => {
+    setToastMessage(msg);
+    setTimeout(() => setToastMessage(null), 4000);
+  }, []);
 
   const grouped = useMemo(() => {
     const map = {};
@@ -492,7 +505,6 @@ export default function Subjects() {
   }
 
   // "Pending semester" — học kỳ mới chưa có môn nào, chỉ hiện quick-add
-  const [pendingSem, setPendingSem] = useState(null);
 
   const handleQuickSave = useCallback((semester, data) => {
     addSubject({ ...data, semester });
@@ -698,6 +710,7 @@ export default function Subjects() {
                                   setInlineEditingId(null);
                                 }}
                                 onCancel={() => setInlineEditingId(null)}
+                                onAlert={showToast}
                               />
                             );
                           }
@@ -766,6 +779,7 @@ export default function Subjects() {
                             semester={semester}
                             onSave={(data) => handleQuickSave(semester, data)}
                             onCancel={() => { setQuickAddSem(null); if (semester === pendingSem && subs.length === 0) setPendingSem(null); }}
+                            onAlert={showToast}
                           />
                         )}
                       </tbody>
@@ -801,6 +815,21 @@ export default function Subjects() {
 
       {csvModalOpen && (
         <ImportCSVModal onClose={() => setCsvModalOpen(false)} onImport={handleCSVImport} />
+      )}
+
+      {toastMessage && (
+        <div style={{
+          position: 'fixed', bottom: 30, right: 30, zIndex: 9999,
+          background: 'var(--bg-card)', color: 'var(--accent-red)',
+          padding: '14px 20px', borderRadius: 12, boxShadow: '0 10px 30px rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'center', gap: 12,
+          fontWeight: 600, fontSize: 14, fontFamily: 'Inter, sans-serif',
+          animation: 'slideUp 0.3s ease-out', border: '1px solid rgba(239, 68, 68, 0.3)',
+          backdropFilter: 'blur(10px)'
+        }}>
+          <AlertTriangle size={18} />
+          {toastMessage}
+        </div>
       )}
     </div>
   );

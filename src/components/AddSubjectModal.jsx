@@ -86,7 +86,7 @@ export default function AddSubjectModal({ isOpen, onClose, editingSubject }) {
 
     const data = {
       ...form,
-      score: form.status === 'done' ? parseFloat(form.score) : '',
+      score: form.score !== '' ? parseFloat(form.score) : '',
       credits: parseInt(form.credits, 10),
       difficulty: parseInt(form.difficulty, 10),
     };
