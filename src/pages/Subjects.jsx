@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useCallback } from 'react';
 import {
   Plus, Pencil, Trash2, RefreshCw, BookOpen, ChevronDown, ChevronUp,
-  AlertTriangle, Check, FileSpreadsheet, X, Info, FolderPlus,
+  AlertTriangle, Check, FileSpreadsheet, X, Info, FolderPlus
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import AddSubjectModal from '../components/AddSubjectModal';
@@ -9,6 +9,54 @@ import { getEffectiveScore, getLetterGrade, convertToScale4, calculateGPA4, calc
 
 const STATUS_LABELS = { done: 'Đã học', planned: 'Dự kiến' };
 const DIFFICULTY_STARS = { 1: '★', 2: '★★', 3: '★★★', 4: '★★★★', 5: '★★★★★' };
+
+// ─── FPT Curriculum Data ──────────────────────────────────────────────────────
+
+const FPT_CURRICULUM = [
+  { code: "VOV114", name: "Võ 1", semester: "HK0", credits: 2 },
+  { code: "VOV124", name: "Võ 2", semester: "HK0", credits: 2 },
+  { code: "VOV134", name: "Võ 3", semester: "HK0", credits: 2 },
+  { code: "DSA103", name: "Sáo", semester: "HK0", credits: 3 },
+  { code: "CSI106", name: "Introduction to Computer Science", semester: "HK1", credits: 3 },
+  { code: "SSL101c", name: "Academic Skills for University Success", semester: "HK1", credits: 3 },
+  { code: "PRF192", name: "Programming Fundamentals", semester: "HK1", credits: 3 },
+  { code: "MAE101", name: "Mathematics for Engineering", semester: "HK1", credits: 3 },
+  { code: "CEA201", name: "Computer Organization and Architecture", semester: "HK1", credits: 3 },
+  { code: "PRO192", name: "Object-Oriented Programming", semester: "HK2", credits: 3 },
+  { code: "MAD101", name: "Discrete mathematics", semester: "HK2", credits: 3 },
+  { code: "OSG202", name: "Operating Systems", semester: "HK2", credits: 3 },
+  { code: "NWC204", name: "Computer Networking", semester: "HK2", credits: 3 },
+  { code: "SSG104", name: "Communication and In-Group Working Skills", semester: "HK2", credits: 3 },
+  { code: "CSD201", name: "Data Structures and Algorithms", semester: "HK3", credits: 3 },
+  { code: "DBI202", name: "Database Systems", semester: "HK3", credits: 3 },
+  { code: "JPD113", name: "Nhật 1", semester: "HK3", credits: 3 },
+  { code: "WED201c", name: "Web Design", semester: "HK3", credits: 3 },
+  { code: "SWE201c", name: "Introduction to Software Engineering", semester: "HK4", credits: 3 },
+  { code: "JPD123", name: "Nhật 2", semester: "HK4", credits: 3 },
+  { code: "IOT102", name: "Internet of Things", semester: "HK4", credits: 3 },
+  { code: "PRJ301", name: "Java Web application development", semester: "HK4", credits: 3 },
+  { code: "MAS291", name: "Statistics & Probability", semester: "HK4", credits: 3 },
+  { code: "SWR302", name: "Software Requirements", semester: "HK5", credits: 3 },
+  { code: "SWT301", name: "Software Testing", semester: "HK5", credits: 3 },
+  { code: "WDU203c", name: "The UI/UX Design", semester: "HK5", credits: 3 },
+  { code: "FGU301", name: "Fundamental Game Development with Unity", semester: "HK5", credits: 3 },
+  { code: "SWP391", name: "Software development project", semester: "HK5", credits: 3 },
+  { code: "EXE101", name: "Experiential Entrepreneurship 1", semester: "HK7", credits: 3 },
+  { code: "PMG201c", name: "Project Management", semester: "HK7", credits: 3 },
+  { code: "AGU301", name: "Advanced Game Development", semester: "HK7", credits: 3 },
+  { code: "GDC301", name: "Game Design Fundamentals", semester: "HK7", credits: 3 },
+  { code: "SWD392", name: "Software Architecture and Design", semester: "HK7", credits: 3 },
+  { code: "GNS301", name: "Game Networking and Server Development", semester: "HK8", credits: 3 },
+  { code: "PRM393", name: "Mobile Programming", semester: "HK8", credits: 3 },
+  { code: "EXE201", name: "Experiential Entrepreneurship 2", semester: "HK8", credits: 3 },
+  { code: "ITE302c", name: "Ethics in IT", semester: "HK8", credits: 3 },
+  { code: "MLN122", name: "Political economics of Marxism - Leninism", semester: "HK8", credits: 3 },
+  { code: "MLN111", name: "Philosophy of Marxism - Leninism", semester: "HK8", credits: 3 },
+  { code: "MLN131", name: "Scientific socialism", semester: "HK9", credits: 3 },
+  { code: "VNR202", name: "History of Vietnam Communist Party", semester: "HK9", credits: 3 },
+  { code: "HCM202", name: "Ho Chi Minh Ideology", semester: "HK9", credits: 3 },
+  { code: "SEP490", name: "SE Capstone Project", semester: "HK9", credits: 10 }
+];
 
 // ─── Add Semester Modal ───────────────────────────────────────────────────────
 
@@ -391,7 +439,7 @@ CS201;Lập trình Python;HK2 2024-2025;;3;2;Dự kiến`;
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function Subjects() {
-  const { state, deleteSubject, duplicateSubject, addSubject } = useApp();
+  const { state, deleteSubject, duplicateSubject, addSubject, updateSettings, clearSubjects } = useApp();
   const { subjects, settings } = state;
 
   const [editingSubject, setEditingSubject] = useState(null);   // chỉ dùng cho sửa
@@ -452,6 +500,26 @@ export default function Subjects() {
     list.forEach(s => addSubject(s));
   }, [addSubject]);
 
+  const loadFPTCurriculum = useCallback(() => {
+    if (subjects.length > 0) {
+      if (!window.confirm("Thao tác này sẽ thêm hơn 40 môn học vào danh sách hiện tại. Bạn có chắc chắn muốn tiếp tục?")) {
+        return;
+      }
+    }
+    FPT_CURRICULUM.forEach(sub => {
+      addSubject({
+        code: sub.code,
+        name: sub.name,
+        semester: sub.semester,
+        credits: sub.credits,
+        score: '',
+        difficulty: 3,
+        status: 'planned'
+      });
+    });
+    updateSettings({ totalCredits: 133 });
+  }, [addSubject, updateSettings, subjects.length]);
+
   const codeGroups = useMemo(() => {
     const map = {};
     for (const s of subjects) {
@@ -487,12 +555,26 @@ export default function Subjects() {
             {subjects.length} môn · {subjects.filter(s => s.status === 'done').length} đã học · {subjects.filter(s => s.status === 'planned').length} dự kiến
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          {subjects.length > 0 && (
+            <button className="btn-ghost" onClick={() => {
+              if(window.confirm('Bạn có chắc chắn muốn xóa TOÀN BỘ dữ liệu môn học không? Thao tác này không thể hoàn tác.')) {
+                clearSubjects();
+              }
+            }} style={{ color: 'var(--accent-red)' }} title="Xóa toàn bộ môn học">
+              <Trash2 size={15} /> <span>Xóa tất cả</span>
+            </button>
+          )}
           <button className="btn-ghost" onClick={() => setCsvModalOpen(true)}>
-            <FileSpreadsheet size={15} /> Import CSV
+            <FileSpreadsheet size={15} /> <span>Import CSV</span>
           </button>
+          {subjects.length === 0 && (
+            <button className="btn-ghost" onClick={loadFPTCurriculum} style={{ color: 'var(--accent-blue)' }}>
+              <span>Khung FPT</span>
+            </button>
+          )}
           <button className="btn-primary" onClick={() => setAddSemModalOpen(true)}>
-            <FolderPlus size={16} /> Thêm học kỳ
+            <FolderPlus size={16} /> <span>Thêm học kỳ</span>
           </button>
         </div>
       </div>
@@ -504,14 +586,17 @@ export default function Subjects() {
             Chưa có dữ liệu nào
           </h2>
           <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 20 }}>
-            Tạo học kỳ đầu tiên để bắt đầu nhập môn học
+            Tạo học kỳ đầu tiên để bắt đầu nhập môn học, hoặc tải khung chương trình mẫu.
           </p>
-          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-            <button className="btn-ghost" onClick={() => setCsvModalOpen(true)}>
-              <FileSpreadsheet size={15} /> Import CSV
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button className="btn-primary" onClick={loadFPTCurriculum} style={{ background: '#3b82f6' }}>
+              <span>Load khung chương trình FPT</span>
+            </button>
+            <button className="btn-ghost" onClick={() => setCsvModalOpen(true)} style={{ background: 'rgba(255,255,255,0.05)' }}>
+              <span>Import CSV</span>
             </button>
             <button className="btn-primary" onClick={() => setAddSemModalOpen(true)}>
-              <FolderPlus size={16} /> Tạo học kỳ đầu tiên
+              <span>Tạo học kỳ đầu tiên</span>
             </button>
           </div>
         </div>

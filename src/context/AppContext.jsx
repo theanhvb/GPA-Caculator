@@ -11,7 +11,7 @@ const STORAGE_KEY = 'gpa_calculator_v1';
 const defaultState = {
   subjects: [],
   settings: {
-    totalCredits: 120,
+    totalCredits: 133,
     conversionTable: DEFAULT_CONVERSION_TABLE,
     thresholds: DEFAULT_THRESHOLDS,
   },
@@ -94,6 +94,9 @@ function reducer(state, action) {
     case 'RESET_ALL': {
       return defaultState;
     }
+    case 'CLEAR_SUBJECTS': {
+      return { ...state, subjects: [] };
+    }
     default:
       return state;
   }
@@ -124,6 +127,7 @@ export function AppProvider({ children }) {
   const updateSettings = useCallback((data) => dispatch({ type: 'UPDATE_SETTINGS', payload: data }), []);
   const importData = useCallback((data) => dispatch({ type: 'IMPORT_DATA', payload: data }), []);
   const resetAll = useCallback(() => dispatch({ type: 'RESET_ALL' }), []);
+  const clearSubjects = useCallback(() => dispatch({ type: 'CLEAR_SUBJECTS' }), []);
 
   const exportData = useCallback(async () => {
     const json = JSON.stringify(state, null, 2);
@@ -171,6 +175,7 @@ export function AppProvider({ children }) {
       exportData,
       importData,
       resetAll,
+      clearSubjects,
     }}>
       {children}
     </AppContext.Provider>
