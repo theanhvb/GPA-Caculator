@@ -182,12 +182,12 @@ function RetakeModal({ subject, onClose, onConfirm }) {
   );
 }
 
-// ─── Quick Add Row ────────────────────────────────────────────────────────────
+// ─── Inline Subject Row ────────────────────────────────────────────────────────────
 
 const QUICK_DEFAULTS = { code: '', name: '', score: '', credits: '3', difficulty: '3', status: 'done' };
 
-function QuickAddRow({ semester, onSave, onCancel }) {
-  const [form, setForm] = useState({ ...QUICK_DEFAULTS });
+function InlineSubjectRow({ semester, initialData, onSave, onCancel }) {
+  const [form, setForm] = useState(initialData || { ...QUICK_DEFAULTS });
   const nameRef = useRef(null);
 
   function set(field, value) {
@@ -210,6 +210,7 @@ function QuickAddRow({ semester, onSave, onCancel }) {
       return;
     }
     onSave({
+      ...initialData,
       code: form.code.trim(),
       name: form.name.trim(),
       semester,
@@ -218,29 +219,31 @@ function QuickAddRow({ semester, onSave, onCancel }) {
       difficulty: parseInt(form.difficulty, 10) || 3,
       status: form.status,
     });
-    setForm({ ...QUICK_DEFAULTS });
-    setTimeout(() => nameRef.current?.focus(), 30);
+    if (!initialData) {
+      setForm({ ...QUICK_DEFAULTS });
+      setTimeout(() => nameRef.current?.focus(), 30);
+    }
   }
 
   const iStyle = {
     background: 'transparent', border: 'none',
-    borderBottom: '1px solid rgba(139,92,246,0.35)',
+    borderBottom: `1px solid ${initialData ? 'rgba(59,130,246,0.35)' : 'rgba(139,92,246,0.35)'}`,
     color: 'var(--text-primary)', fontSize: 13,
     fontFamily: 'Inter, sans-serif', padding: '3px 4px',
     outline: 'none', width: '100%', borderRadius: 0,
   };
 
   return (
-    <tr style={{ background: 'rgba(139,92,246,0.07)' }}>
+    <tr style={{ background: initialData ? 'rgba(59,130,246,0.07)' : 'rgba(139,92,246,0.07)' }}>
       <td>
         <input style={{ ...iStyle, width: 70, fontFamily: 'monospace', fontSize: 12 }}
           value={form.code} onChange={e => set('code', e.target.value)}
-          onKeyDown={handleKeyDown} placeholder="CS101" />
+          onKeyDown={handleKeyDown} placeholder="CS101" autoFocus={!!initialData} />
       </td>
       <td>
         <input ref={nameRef} style={{ ...iStyle, minWidth: 150 }}
           value={form.name} onChange={e => set('name', e.target.value)}
-          onKeyDown={handleKeyDown} placeholder="Tên môn học *" autoFocus />
+          onKeyDown={handleKeyDown} placeholder="Tên môn học *" autoFocus={!initialData} />
       </td>
       <td style={{ textAlign: 'center' }}>
         <input style={{ ...iStyle, width: 56, textAlign: 'center' }}
@@ -274,10 +277,10 @@ function QuickAddRow({ semester, onSave, onCancel }) {
       </td>
       <td>
         <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-          <button className="btn-primary" style={{ padding: '4px 10px' }} onClick={trySubmit} title="Lưu (Enter)">
+          <button className={initialData ? "btn-ghost" : "btn-primary"} style={{ padding: '4px 10px', color: initialData ? '#34d399' : 'white' }} onClick={trySubmit} title="Lưu (Enter)">
             <Check size={12} />
           </button>
-          <button className="btn-ghost" style={{ padding: '4px 8px' }} onClick={onCancel} title="Huỷ (Esc)">
+          <button className="btn-ghost" style={{ padding: '4px 8px', color: initialData ? '#ef4444' : 'var(--text-secondary)' }} onClick={onCancel} title="Huỷ (Esc)">
             <X size={12} />
           </button>
         </div>
@@ -439,10 +442,11 @@ CS201;Lập trình Python;HK2 2024-2025;;3;2;Dự kiến`;
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function Subjects() {
-  const { state, deleteSubject, duplicateSubject, addSubject, updateSettings, clearSubjects } = useApp();
+  const { state, deleteSubject, duplicateSubject, addSubject, updateSubject, updateSettings, clearSubjects } = useApp();
   const { subjects, settings } = state;
 
-  const [editingSubject, setEditingSubject] = useState(null);   // chỉ dùng cho sửa
+  const [editingSubject, setEditingSubject] = useState(null);   // chỉ dùng cho sửa (fallback)
+  const [inlineEditingId, setInlineEditingId] = useState(null);
   const [retakeTarget, setRetakeTarget] = useState(null);
   const [collapsedSemesters, setCollapsedSemesters] = useState({});
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
@@ -683,13 +687,28 @@ export default function Subjects() {
                       </thead>
                       <tbody>
                         {subs.map(s => {
+                          if (inlineEditingId === s.id) {
+                            return (
+                              <InlineSubjectRow
+                                key={s.id}
+                                semester={semester}
+                                initialData={s}
+                                onSave={(data) => {
+                                  updateSubject(s.id, data);
+                                  setInlineEditingId(null);
+                                }}
+                                onCancel={() => setInlineEditingId(null)}
+                              />
+                            );
+                          }
+
                           const score = getEffectiveScore(s);
                           const scale4 = score !== null ? convertToScale4(score, settings.conversionTable) : null;
                           const letter = score !== null ? getLetterGrade(score, settings.conversionTable) : '-';
                           const isConfirmDelete = deleteConfirmId === s.id;
 
                           return (
-                            <tr key={s.id}>
+                            <tr key={s.id} onDoubleClick={() => setInlineEditingId(s.id)}>
                               <td>
                                 <span style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'monospace' }}>
                                   {s.code || '—'}
@@ -727,7 +746,7 @@ export default function Subjects() {
                               </td>
                               <td>
                                 <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                                  <button className="btn-ghost" onClick={() => setEditingSubject(s)} style={{ padding: '5px 8px' }} title="Sửa"><Pencil size={13} /></button>
+                                  <button className="btn-ghost" onClick={() => setInlineEditingId(s.id)} style={{ padding: '5px 8px' }} title="Sửa nhanh"><Pencil size={13} /></button>
                                   <button className="btn-ghost" onClick={() => setRetakeTarget(s)} style={{ padding: '5px 8px' }} title="Học lại"><RefreshCw size={13} /></button>
                                   {isConfirmDelete ? (
                                     <button className="btn-danger" onClick={() => handleDelete(s.id)} style={{ padding: '5px 10px', fontSize: 12 }}>
@@ -743,7 +762,7 @@ export default function Subjects() {
                         })}
 
                         {showingQuickAdd && (
-                          <QuickAddRow
+                          <InlineSubjectRow
                             semester={semester}
                             onSave={(data) => handleQuickSave(semester, data)}
                             onCancel={() => { setQuickAddSem(null); if (semester === pendingSem && subs.length === 0) setPendingSem(null); }}
