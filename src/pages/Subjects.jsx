@@ -390,7 +390,177 @@ function parseCSV(text) {
   return { subjects, errors };
 }
 
+function parseFAP(text) {
+  const lines = text.trim().split(/\r?\n/);
+  const subjects = [];
+  const errors = [];
+  
+  lines.forEach((line, idx) => {
+    if (!line.trim()) return;
+    
+    const parts = line.split('\t').map(p => p.trim());
+    
+    // Bóc tách chính xác dựa trên cấu trúc cột của FAP Transcript
+    const codeIdx = parts.findIndex(p => /^[A-Z]{2,4}\d{3}[a-zA-Z]?$/.test(p));
+    if (codeIdx === -1) return; 
+    
+    const code = parts[codeIdx];
+    let semester = "Chưa phân bổ";
+    if (codeIdx >= 1 && parts[codeIdx - 1]) {
+      semester = parts[codeIdx - 1];
+    } else {
+      const semMatch = line.match(/\b(?:Fall|Spring|Summer)\s*\d{2,4}\b/i) || line.match(/\bHK\d\b/i);
+      if (semMatch) semester = semMatch[0];
+    }
+    
+    let name = `Môn ${code}`;
+    let credits = 3;
+    let score = '';
+    let status = 'planned';
+    
+    // Tìm cột Status (chắc chắn luôn nằm ở cuối cùng hoặc sát cuối)
+    let statusIdx = -1;
+    for (let i = parts.length - 1; i >= 0; i--) {
+      const low = parts[i].toLowerCase();
+      if (low === 'passed' || low === 'not passed' || low === 'studying' || low === 'not started' || low === 'exempted') {
+        statusIdx = i;
+        break;
+      }
+    }
+    
+    if (statusIdx !== -1 && statusIdx >= 3) {
+      const statusStr = parts[statusIdx].toLowerCase();
+      if (statusStr === 'passed' || statusStr === 'exempted' || statusStr === 'not passed') status = 'done';
+      else status = 'planned';
+      
+      // Name luôn nằm trước Status 3 cột
+      if (statusIdx - 3 >= 0 && parts[statusIdx - 3]) {
+        name = parts[statusIdx - 3];
+      }
+      
+      // Credit luôn nằm trước Status 2 cột
+      if (statusIdx - 2 >= 0 && parts[statusIdx - 2]) {
+        const parsedCredits = parseInt(parts[statusIdx - 2], 10);
+        if (!isNaN(parsedCredits)) credits = parsedCredits;
+      }
+      
+      // Grade luôn nằm trước Status 1 cột
+      if (statusIdx - 1 >= 0 && parts[statusIdx - 1]) {
+        const gradeStr = parts[statusIdx - 1].replace(',', '.');
+        const val = parseFloat(gradeStr);
+        if (!isNaN(val)) score = val;
+      }
+    } else {
+      // Fallback
+      const lowerLine = line.toLowerCase();
+      if (lowerLine.includes('passed') || lowerLine.includes('exempted')) status = 'done';
+      else if (lowerLine.includes('studying') || lowerLine.includes('not started')) status = 'planned';
+      else if (lowerLine.includes('not passed')) status = 'done';
+      
+      const numMatches = line.match(/\b\d+([.,]\d+)?\b/g);
+      if (numMatches) {
+        const nums = numMatches.map(n => parseFloat(n.replace(',', '.'))).filter(n => n >= 0 && n <= 10);
+        if (nums.length > 0) score = nums[nums.length - 1]; 
+      }
+      if (status === 'done' && score === '') score = 0;
+      if (status !== 'done') score = '';
+    }
+    
+    // Bộ lọc theo yêu cầu: Bỏ qua môn có tín chỉ <= 0 hoặc (đã học nhưng điểm <= 0)
+    if (credits <= 0) return;
+    if (status === 'done' && (score === '' || score <= 0)) return;
+    
+    subjects.push({ code, name, semester, score, credits, difficulty: 3, status });
+  });
+  
+  if (subjects.length === 0 && lines.length > 0) {
+    errors.push("Không tìm thấy môn học nào hợp lệ. Đảm bảo bạn đã copy đầy đủ bảng điểm FAP.");
+  }
+  
+  return { subjects, errors };
+}
+
+function parseIUH(text) {
+  const lines = text.trim().split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const subjects = [];
+  const errors = [];
+  
+  let currentSemester = "Chưa phân bổ";
+  
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    
+    // Check if line is a semester header like "HK1 (2023 - 2024)"
+    const semMatch = line.match(/^HK\d+\s*\(\d{4}\s*-\s*\d{4}\)/i) || line.match(/^Học kỳ/i);
+    if (semMatch) {
+      currentSemester = line;
+      continue;
+    }
+    
+    // Case 1: Tab-separated on a single line
+    let parts = line.split('\t').map(p => p.trim());
+    if (parts.length > 5 && /^\d+$/.test(parts[0]) && parts[2] && parts[3]) {
+      const code = parts[1];
+      const name = parts[2];
+      const credits = parseInt(parts[3], 10);
+      
+      let score = '';
+      let status = 'planned';
+      
+      const letterGradeIdx = parts.findLastIndex(p => /^[A-F][+-]?$/.test(p));
+      if (letterGradeIdx !== -1) {
+        status = 'done';
+        if (letterGradeIdx - 2 > 3) {
+          const val = parseFloat(parts[letterGradeIdx - 2].replace(',', '.'));
+          if (!isNaN(val)) score = val;
+        }
+      }
+      
+      if (!isNaN(credits) && credits > 0) {
+        subjects.push({ code, name, semester: currentSemester, score, credits, difficulty: 3, status });
+      }
+      continue;
+    }
+    
+    // Case 2: Multi-line record (IUH copy style)
+    if (/^\d+$/.test(line) && i + 3 < lines.length) {
+      const code = lines[i+1];
+      const name = lines[i+2];
+      const gradesLine = lines[i+3];
+      
+      if (gradesLine.includes('\t') || /^\d+\s+/.test(gradesLine)) {
+        parts = gradesLine.split('\t').map(p => p.trim());
+        const credits = parseInt(parts[0], 10);
+        
+        let score = '';
+        let status = 'planned';
+        
+        const letterGradeIdx = parts.findLastIndex(p => /^[A-F][+-]?$/.test(p));
+        if (letterGradeIdx !== -1) {
+          status = 'done';
+          if (letterGradeIdx - 2 >= 0) {
+             const val = parseFloat(parts[letterGradeIdx - 2].replace(',', '.'));
+             if (!isNaN(val)) score = val;
+          }
+        }
+        
+        if (!isNaN(credits) && credits > 0) {
+           subjects.push({ code, name, semester: currentSemester, score, credits, difficulty: 3, status });
+        }
+        i += 3;
+      }
+    }
+  }
+  
+  if (subjects.length === 0 && lines.length > 0) {
+    errors.push("Không tìm thấy môn học nào hợp lệ. Đảm bảo bạn đã copy đầy đủ bảng điểm IUH.");
+  }
+  
+  return { subjects, errors };
+}
+
 function ImportCSVModal({ onClose, onImport }) {
+  const [mode, setMode] = useState('fap'); // 'fap', 'iuh', or 'csv'
   const [text, setText] = useState('');
   const [preview, setPreview] = useState(null);
   const [errors, setErrors] = useState([]);
@@ -401,10 +571,23 @@ CS101;Giải tích 1;HK1 2024-2025;8.5;4;3;Đã học
 CS102;Đại số tuyến tính;HK1 2024-2025;7.0;3;4;Đã học
 CS201;Lập trình Python;HK2 2024-2025;;3;2;Dự kiến`;
 
-  function handleParse(raw) {
-    const { subjects, errors } = parseCSV(raw);
-    setPreview(subjects); setErrors(errors);
+  function handleParse(raw, currentMode = mode) {
+    if (currentMode === 'csv') {
+      const { subjects, errors } = parseCSV(raw);
+      setPreview(subjects); setErrors(errors);
+    } else if (currentMode === 'iuh') {
+      const { subjects, errors } = parseIUH(raw);
+      setPreview(subjects); setErrors(errors);
+    } else {
+      const { subjects, errors } = parseFAP(raw);
+      setPreview(subjects); setErrors(errors);
+    }
   }
+
+  const handleModeChange = (newMode) => {
+    setMode(newMode);
+    if (text) handleParse(text, newMode);
+  };
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -417,21 +600,53 @@ CS201;Lập trình Python;HK2 2024-2025;;3;2;Dự kiến`;
           <button className="btn-ghost" style={{ padding: '6px 8px' }} onClick={onClose}><X size={16} /></button>
         </div>
 
-        <div className="alert-info" style={{ marginBottom: 16, fontSize: 12 }}>
-          <Info size={14} />
-          <div>
-            <strong>Format cột:</strong> Mã môn · Tên môn · Học kỳ · Điểm (0–10) · Tín chỉ · Độ khó (1–5) · Trạng thái<br/>
-            Phân cách bằng <code>;</code> hoặc <code>,</code> hoặc <code>Tab</code> (tự nhận dạng).
-          </div>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
+          <button className={mode === 'fap' ? "btn-primary" : "btn-ghost"} onClick={() => handleModeChange('fap')} style={{ flex: 1, padding: '8px' }}>
+            <span>🧡 Điểm FPT/FAP</span>
+          </button>
+          <button className={mode === 'iuh' ? "btn-primary" : "btn-ghost"} onClick={() => handleModeChange('iuh')} style={{ flex: 1, padding: '8px' }}>
+            <span>❤️ Điểm IUH</span>
+          </button>
+          <button className={mode === 'csv' ? "btn-primary" : "btn-ghost"} onClick={() => handleModeChange('csv')} style={{ flex: 1, padding: '8px' }}>
+            <span>📊 Form Excel</span>
+          </button>
         </div>
 
+        {mode === 'csv' ? (
+          <div className="alert-info" style={{ marginBottom: 16, fontSize: 12 }}>
+            <Info size={14} />
+            <div>
+              <strong>Format cột:</strong> Mã môn · Tên môn · Học kỳ · Điểm (0–10) · Tín chỉ · Độ khó (1–5) · Trạng thái<br/>
+              Phân cách bằng <code>;</code> hoặc <code>,</code> hoặc <code>Tab</code> (tự nhận dạng).
+            </div>
+          </div>
+        ) : mode === 'fap' ? (
+          <div className="alert-info" style={{ marginBottom: 16, fontSize: 12, background: 'rgba(249, 115, 22, 0.1)', color: '#f97316', border: '1px solid rgba(249, 115, 22, 0.2)' }}>
+            <Info size={14} />
+            <div>
+              <strong>Sinh viên FPT:</strong> Đăng nhập FAP 👉 Vào bảng điểm (Transcript) 👉 Nhấn Ctrl+A để bôi đen toàn trang 👉 Ctrl+C 👉 Dán (Ctrl+V) thẳng vào ô bên dưới.
+            </div>
+          </div>
+        ) : (
+          <div className="alert-info" style={{ marginBottom: 16, fontSize: 12, background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+            <Info size={14} />
+            <div>
+              <strong>Sinh viên IUH:</strong> Đăng nhập cổng sinh viên 👉 Xem điểm 👉 Copy toàn bộ bảng điểm 👉 Dán (Ctrl+V) vào ô bên dưới.
+            </div>
+          </div>
+        )}
+
         <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-          <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => fileRef.current?.click()}>
-            📁 Upload file .csv
-          </button>
-          <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => { setText(CSV_TEMPLATE); handleParse(CSV_TEMPLATE); }}>
-            📋 Template mẫu
-          </button>
+          {mode === 'csv' && (
+            <>
+              <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => fileRef.current?.click()}>
+                📁 Upload file .csv
+              </button>
+              <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => { setText(CSV_TEMPLATE); handleParse(CSV_TEMPLATE); }}>
+                📋 Template mẫu
+              </button>
+            </>
+          )}
           <input ref={fileRef} type="file" accept=".csv,.txt" onChange={e => {
             const file = e.target.files?.[0]; if (!file) return;
             const reader = new FileReader();
@@ -443,7 +658,11 @@ CS201;Lập trình Python;HK2 2024-2025;;3;2;Dự kiến`;
         <textarea
           value={text}
           onChange={e => { setText(e.target.value); handleParse(e.target.value); }}
-          placeholder={`Dán dữ liệu từ Excel vào đây...\nCS101;Giải tích 1;HK1 2024-2025;8.5;4;3;Đã học`}
+          placeholder={
+            mode === 'csv' ? `Dán dữ liệu từ Excel vào đây...\nCS101;Giải tích 1;HK1 2024-2025;8.5;4;3;Đã học` 
+            : mode === 'fap' ? `Ctrl+V để dán dữ liệu copy từ trang web FAP vào đây...` 
+            : `Ctrl+V để dán dữ liệu copy từ trang web IUH vào đây...`
+          }
           style={{
             width: '100%', minHeight: 130, background: 'rgba(255,255,255,0.04)',
             border: '1px solid var(--border-color)', borderRadius: 10, padding: '12px',
@@ -521,11 +740,43 @@ export default function Subjects() {
   const grouped = useMemo(() => {
     const map = {};
     for (const s of subjects) {
-      const key = s.semester || 'Chưa phân học kỳ';
+      const key = s.semester || 'Chưa phân bổ';
       if (!map[key]) map[key] = [];
       map[key].push(s);
     }
-    return Object.entries(map).sort(([a], [b]) => a.localeCompare(b));
+    
+    function parseSemesterSortKey(sem) {
+      if (!sem) return 999999;
+      // FPT: Spring (1), Summer (2), Fall (3)
+      const yearMatch = sem.match(/(\d{4})/);
+      const year = yearMatch ? parseInt(yearMatch[1], 10) : 0;
+      
+      const semLower = sem.toLowerCase();
+      let season = 0;
+      if (semLower.includes('spring')) season = 1;
+      else if (semLower.includes('summer')) season = 2;
+      else if (semLower.includes('fall')) season = 3;
+      
+      if (year > 0 && season > 0) {
+        return year * 10 + season; // e.g. Fall2023 -> 20233
+      }
+      
+      // Generic HK
+      const hkMatch = sem.match(/HK(\d+)/i);
+      if (hkMatch) {
+        // Just return a very small base + hk number so HKs always stay at the top or are sorted relative to each other
+        return parseInt(hkMatch[1], 10);
+      }
+      
+      return 999999;
+    }
+
+    return Object.entries(map).sort(([a], [b]) => {
+      const keyA = parseSemesterSortKey(a);
+      const keyB = parseSemesterSortKey(b);
+      if (keyA !== keyB) return keyA - keyB;
+      return a.localeCompare(b);
+    });
   }, [subjects]);
 
   const existingSemesters = useMemo(() => grouped.map(([s]) => s), [grouped]);
@@ -657,8 +908,8 @@ export default function Subjects() {
           </button>
           {subjects.length === 0 && (
             <>
-              <button className="btn-ghost" onClick={loadFPTCurriculum} style={{ color: 'var(--accent-blue)' }}>
-                <span>Khung FPT</span>
+              <button className="btn-ghost" onClick={() => setCsvModalOpen(true)} style={{ color: 'var(--accent-purple)' }}>
+                <span>Bóc tách FPT/IUH</span>
               </button>
               <button className="btn-ghost" onClick={loadNormalCurriculum} style={{ color: 'var(--accent-green)' }}>
                 <span>Khung 8 học kỳ</span>
@@ -681,14 +932,11 @@ export default function Subjects() {
             Tạo học kỳ đầu tiên để bắt đầu nhập môn học, hoặc tải khung chương trình mẫu.
           </p>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button className="btn-primary" onClick={loadFPTCurriculum} style={{ background: '#3b82f6' }}>
-              <span>Load khung trình FPT (133 TC)</span>
+            <button className="btn-primary" onClick={() => setCsvModalOpen(true)} style={{ background: 'var(--accent-purple)' }}>
+              <span>Bóc tách tự động (FPT/IUH)</span>
             </button>
-            <button className="btn-primary" onClick={loadNormalCurriculum} style={{ background: '#10b981' }}>
+            <button className="btn-primary" onClick={loadNormalCurriculum} style={{ background: 'var(--accent-green)' }}>
               <span>Load khung 8 Học kỳ (120 TC)</span>
-            </button>
-            <button className="btn-ghost" onClick={() => setCsvModalOpen(true)} style={{ background: 'rgba(255,255,255,0.05)' }}>
-              <span>Import CSV</span>
             </button>
             <button className="btn-primary" onClick={() => setAddSemModalOpen(true)}>
               <span>Tạo học kỳ đầu tiên</span>
